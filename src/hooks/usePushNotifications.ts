@@ -33,13 +33,16 @@ export function usePushNotifications() {
 
       const sub = subscription.toJSON();
 
-      // Save directly to table (matching existing schema: endpoint, p256dh, auth)
-      await supabase.from("push_subscriptions").upsert({
+      // Save with app='luma' to separate from other systems
+      // Delete old luma entry first, then insert new
+      await supabase.from("push_subscriptions").delete().eq("user_id", LUMA_USER_ID).eq("app", "luma");
+      await supabase.from("push_subscriptions").insert({
         user_id: LUMA_USER_ID,
         endpoint: sub.endpoint,
         p256dh: sub.keys?.p256dh,
         auth: sub.keys?.auth,
-      }, { onConflict: "user_id" });
+        app: "luma",
+      });
 
       setLoading(false);
       return true;
