@@ -1,4 +1,4 @@
-const CACHE_NAME = "luma-v1";
+const CACHE_NAME = "luma-v2";
 const PRECACHE = ["/", "/materias", "/caderno", "/chat", "/agenda"];
 
 self.addEventListener("install", (e) => {
@@ -27,5 +27,36 @@ self.addEventListener("fetch", (e) => {
         return res;
       })
       .catch(() => caches.match(e.request))
+  );
+});
+
+// Push notifications
+self.addEventListener("push", (e) => {
+  let data = { title: "Luma", body: "Hora de estudar!", icon: "/icons/icon-192.png" };
+  try {
+    data = { ...data, ...e.data.json() };
+  } catch {}
+
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: data.icon || "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      vibrate: [200, 100, 200],
+      data: { url: data.url || "/" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = e.notification.data?.url || "/";
+  e.waitUntil(
+    clients.matchAll({ type: "window" }).then((list) => {
+      for (const client of list) {
+        if (client.url.includes(url) && "focus" in client) return client.focus();
+      }
+      return clients.openWindow(url);
+    })
   );
 });

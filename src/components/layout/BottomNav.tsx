@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useCallback } from "react";
+import { useAuth } from "@/lib/AuthProvider";
 
 const tabs = [
   {
@@ -66,9 +67,23 @@ const tabs = [
   },
 ];
 
+const adminTab = {
+  label: "Push",
+  href: "/admin",
+  icon: (
+    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="transition-transform duration-300">
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </svg>
+  ),
+};
+
 export default function BottomNav() {
   const pathname = usePathname();
   const iconRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const { isAdmin, user } = useAuth();
+
+  const allTabs = isAdmin ? [...tabs, adminTab] : tabs;
 
   function isActive(href: string) {
     if (href === "/") return pathname === "/";
@@ -79,27 +94,27 @@ export default function BottomNav() {
     const el = iconRefs.current[index];
     if (el) {
       el.style.transform = "scale(0.8)";
-      setTimeout(() => {
-        el.style.transform = "scale(1)";
-      }, 150);
+      setTimeout(() => { el.style.transform = "scale(1)"; }, 150);
     }
   }, []);
 
+  const initial = user?.email?.[0]?.toUpperCase() || "?";
+
   return (
     <nav className="fixed bottom-0 left-0 w-full z-50 bottom-nav flex justify-between items-start px-6 pt-3">
-      <div className="profile-btn w-10 h-10 rounded-full shrink-0 flex items-center justify-center cursor-pointer mt-1 relative group">
-        <span className="text-white font-serif text-lg tracking-tighter group-hover:text-purple-300 transition-colors">N</span>
+      <Link href={user ? "/" : "/login"} className="profile-btn w-10 h-10 rounded-full shrink-0 flex items-center justify-center cursor-pointer mt-1 relative group">
+        <span className="text-white font-serif text-lg tracking-tighter group-hover:text-purple-300 transition-colors">{initial}</span>
         <div className="absolute inset-0 rounded-full bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-      </div>
+      </Link>
 
       <div className="flex flex-1 justify-around h-full items-start pt-1">
-        {tabs.map((tab, i) => {
+        {allTabs.map((tab, i) => {
           const active = isActive(tab.href);
           return (
             <Link
               key={tab.href}
               href={tab.href}
-              className={`nav-item flex flex-col items-center gap-1.5 w-16${active ? " active" : ""}`}
+              className={`nav-item flex flex-col items-center gap-1.5 w-14${active ? " active" : ""}`}
               onClick={() => handleClick(i)}
             >
               <span

@@ -2,7 +2,10 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import LiquidBackground from "@/components/ui/LiquidBackground";
 import { StoreProvider } from "@/lib/StoreProvider";
+import { AuthProvider } from "@/lib/AuthProvider";
+import AuthGuard from "@/components/AuthGuard";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -43,14 +46,16 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className={`h-full ${inter.className}`}>
       <body className="min-h-screen">
-        <div className="bg-orb orb-1" />
-        <div className="bg-orb orb-2" />
-        <div className="bg-orb orb-3" />
-        <StoreProvider>
-          <div className="relative z-10">
-            {children}
-          </div>
-        </StoreProvider>
+        <LiquidBackground />
+        <AuthProvider>
+          <AuthGuard>
+            <StoreProvider>
+              <div className="relative z-10">
+                {children}
+              </div>
+            </StoreProvider>
+          </AuthGuard>
+        </AuthProvider>
         <ServiceWorkerRegister />
       </body>
     </html>
