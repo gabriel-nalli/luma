@@ -1,0 +1,10 @@
+export { default as AnimatedStar } from "./AnimatedStar";
+export { default as AnimatedHeart } from "./AnimatedHeart";
+export { default as AnimatedMedal } from "./AnimatedMedal";
+export { default as AnimatedBook } from "./AnimatedBook";
+export { default as AnimatedLamp } from "./AnimatedLamp";
+export { default as AnimatedRocket } from "./AnimatedRocket";
+export { default as AnimatedCheck } from "./AnimatedCheck";
+export { default as ConfettiEffect } from "./ConfettiEffect";
+export { default as AnimatedSun } from "./AnimatedSun";
+export { default as AnimatedMoon } from "./AnimatedMoon";
