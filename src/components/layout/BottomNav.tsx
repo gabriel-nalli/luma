@@ -102,10 +102,6 @@ export default function BottomNav() {
 
   return (
     <nav className="fixed bottom-0 left-0 w-full z-50 bottom-nav flex justify-between items-start px-6 pt-3">
-      <Link href={user ? "/" : "/login"} className="profile-btn w-10 h-10 rounded-full shrink-0 flex items-center justify-center cursor-pointer mt-1 relative group">
-        <span className="text-white font-serif text-lg tracking-tighter group-hover:text-purple-300 transition-colors">{initial}</span>
-        <div className="absolute inset-0 rounded-full bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-      </Link>
 
       <div className="flex flex-1 justify-around h-full items-start pt-1">
         {allTabs.map((tab, i) => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { LUMA_USER_ID } from "@/lib/supabase";
+import { supabase, LUMA_USER_ID } from "@/lib/supabase";
 
 const SUPABASE_URL = "https://vnrfzgbqiagxidcaeanr.supabase.co";
 
@@ -16,39 +16,35 @@ export function usePushNotifications() {
     setLoading(true);
 
     try {
-      // 1. Ask permission
       const perm = await Notification.requestPermission();
       setPermission(perm);
       if (perm !== "granted") { setLoading(false); return false; }
 
-      // 2. Get VAPID public key
+      // Get VAPID public key
       const vapidRes = await fetch(`${SUPABASE_URL}/functions/v1/get-vapid-public-key`);
       const { publicKey } = await vapidRes.json();
 
-      // 3. Subscribe to push
+      // Subscribe to push
       const reg = await navigator.serviceWorker.ready;
       const subscription = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       });
 
-      // 4. Save subscription to Supabase
       const sub = subscription.toJSON();
-      await fetch(`${SUPABASE_URL}/functions/v1/save-subscription`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: LUMA_USER_ID,
-          subscription: {
-            endpoint: sub.endpoint,
-            keys: { p256dh: sub.keys?.p256dh, auth: sub.keys?.auth },
-          },
-        }),
-      });
+
+      // Save directly to table (matching existing schema: endpoint, p256dh, auth)
+      await supabase.from("push_subscriptions").upsert({
+        user_id: LUMA_USER_ID,
+        endpoint: sub.endpoint,
+        p256dh: sub.keys?.p256dh,
+        auth: sub.keys?.auth,
+      }, { onConflict: "user_id" });
 
       setLoading(false);
       return true;
-    } catch {
+    } catch (e) {
+      console.error("Push error:", e);
       setLoading(false);
       return false;
     }

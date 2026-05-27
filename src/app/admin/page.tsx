@@ -55,28 +55,13 @@ export default function AdminPage() {
     setSending(true);
     setResult("");
     try {
-      // Send directly to all subscriptions
-      const { createClient } = await import("@supabase/supabase-js");
-      const supa = createClient(SUPABASE_URL, "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZucmZ6Z2JxaWFneGlkY2FlYW5yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5Mjg1NjcsImV4cCI6MjA3OTUwNDU2N30.cEWd8IFv9lIYaiBQvnCr4jkTNEn2o0n1p6CgzLN0f20");
-      const { data: subs } = await supa.from("push_subscriptions").select("subscription");
-
-      let sent = 0;
-      for (const sub of (subs || [])) {
-        try {
-          await fetch(`${SUPABASE_URL}/functions/v1/send-push-notification`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              subscription: sub.subscription,
-              title: customTitle.trim(),
-              body: customBody.trim(),
-              url: "/",
-            }),
-          });
-          sent++;
-        } catch {}
-      }
-      setResult(`Enviado pra ${sent} dispositivo(s)`);
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/luma-notifications`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: customTitle.trim(), body: customBody.trim(), url: "/" }),
+      });
+      const data = await res.json();
+      setResult(`Enviado pra ${data.sent || 0} dispositivo(s)`);
       setCustomTitle("");
       setCustomBody("");
     } catch {
