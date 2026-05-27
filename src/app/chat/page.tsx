@@ -119,9 +119,9 @@ export default function ChatPage() {
   function formatTime(s: number) { return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
 
   return (
-    <main className="w-full max-w-2xl mx-auto relative z-10 pb-36 p-6 md:p-12">
-      <div className="space-y-6 pt-8">
-        <div className="flex flex-col min-h-[calc(100vh-140px)] relative">
+    <main className="w-full max-w-2xl mx-auto relative z-10 p-6 md:p-12 h-screen flex flex-col" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+      <div className="flex-1 flex flex-col pt-8 pb-24">
+        <div className="flex flex-col flex-1 relative">
 
           <div className="relative z-10 flex-none">
             <PandaChat />
@@ -200,7 +200,7 @@ export default function ChatPage() {
           )}
 
           {/* Input area */}
-          <div className="mt-auto pt-4 relative z-10">
+          <div className="fixed bottom-[90px] left-0 right-0 px-6 z-20 max-w-2xl mx-auto">
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
 
             {/* Recording UI */}

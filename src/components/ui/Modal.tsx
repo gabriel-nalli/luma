@@ -20,7 +20,7 @@ export default function Modal({ open, onClose, children, fullscreen = false }: M
 
   if (fullscreen) {
     return (
-      <div className="fixed inset-0 z-[100] flex flex-col" style={{ background: "#0f0c1b" }}>
+      <div className="fixed inset-0 z-[100] flex flex-col" style={{ background: "#0f0c1b", paddingTop: "env(safe-area-inset-top)" }}>
         <div className="flex-1 flex flex-col p-5 pb-6 overflow-y-auto">
           {children}
         </div>
