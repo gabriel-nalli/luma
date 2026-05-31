@@ -225,21 +225,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const safeName = slide.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
       const filePath = `${uid}/${Date.now()}_${safeName}`;
 
-      // Upload: prefer raw File (works on mobile), fallback to base64
-      let uploadBody: File | Blob;
+      // Convert to ArrayBuffer for reliable upload on all platforms (Android included)
+      let arrayBuffer: ArrayBuffer;
       if (file) {
-        uploadBody = file;
+        arrayBuffer = await file.arrayBuffer();
       } else if (slide.dataUrl.startsWith("data:")) {
         const base64 = slide.dataUrl.split(",")[1];
         const binary = atob(base64);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        uploadBody = new Blob([bytes], { type: "application/pdf" });
+        arrayBuffer = bytes.buffer;
       } else {
         console.error("addSlide: no file or dataUrl"); return;
       }
 
-      const { error: uploadError } = await supabase.storage.from("luma-pdfs").upload(filePath, uploadBody, { contentType: "application/pdf", upsert: true });
+      const { error: uploadError } = await supabase.storage.from("luma-pdfs").upload(filePath, arrayBuffer, { contentType: "application/pdf", upsert: true });
       if (uploadError) { console.error("Upload error:", uploadError); return; }
       const { data: urlData } = supabase.storage.from("luma-pdfs").getPublicUrl(filePath);
       const publicUrl = urlData?.publicUrl || "";
