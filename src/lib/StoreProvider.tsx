@@ -48,7 +48,7 @@ interface StoreContextType {
   addReminder: (r: Omit<Reminder, "id">) => void;
   toggleReminder: (id: string) => void;
   deleteReminder: (id: string) => void;
-  addSlide: (s: Omit<SlideFile, "id" | "createdAt">) => Promise<void>;
+  addSlide: (s: Omit<SlideFile, "id" | "createdAt">, file?: File) => Promise<void>;
   updateSlide: (id: string, patch: Partial<Omit<SlideFile, "id" | "createdAt">>) => Promise<void>;
   deleteSlide: (id: string) => Promise<void>;
   checkStreak: () => void;
@@ -220,16 +220,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, reminders: s.reminders.filter((r) => r.id !== id) }));
   }, []);
 
-  const addSlide = useCallback(async (slide: Omit<SlideFile, "id" | "createdAt">) => {
+  const addSlide = useCallback(async (slide: Omit<SlideFile, "id" | "createdAt">, file?: File) => {
     try {
-      const base64 = slide.dataUrl.split(",")[1];
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: "application/pdf" });
       const safeName = slide.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
       const filePath = `${uid}/${Date.now()}_${safeName}`;
-      const { error: uploadError } = await supabase.storage.from("luma-pdfs").upload(filePath, blob, { contentType: "application/pdf", upsert: true });
+
+      // Upload: prefer raw File (works on mobile), fallback to base64
+      let uploadBody: File | Blob;
+      if (file) {
+        uploadBody = file;
+      } else if (slide.dataUrl.startsWith("data:")) {
+        const base64 = slide.dataUrl.split(",")[1];
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        uploadBody = new Blob([bytes], { type: "application/pdf" });
+      } else {
+        console.error("addSlide: no file or dataUrl"); return;
+      }
+
+      const { error: uploadError } = await supabase.storage.from("luma-pdfs").upload(filePath, uploadBody, { contentType: "application/pdf", upsert: true });
       if (uploadError) { console.error("Upload error:", uploadError); return; }
       const { data: urlData } = supabase.storage.from("luma-pdfs").getPublicUrl(filePath);
       const publicUrl = urlData?.publicUrl || "";

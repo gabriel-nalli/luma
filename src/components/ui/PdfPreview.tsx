@@ -25,14 +25,8 @@ export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
   }, [dataUrl]);
 
   useEffect(() => {
-    if (attemptedRef.current) return;
+    if (attemptedRef.current || !dataUrl) return;
     attemptedRef.current = true;
-
-    // On mobile with a public URL, skip canvas rendering (too heavy)
-    if (isMobile && dataUrl.startsWith("http")) {
-      setLoading(false);
-      return;
-    }
 
     let cancelled = false;
 
@@ -56,19 +50,19 @@ export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
 
         const pdf = await pdfjsLib.getDocument({ data: uint8 }).promise;
         const rendered: string[] = [];
-        // Limit pages to prevent memory issues
-        const maxPages = Math.min(pdf.numPages, 10);
+        // Mobile: only first page. Desktop: up to 10
+        const maxPages = isMobile ? Math.min(pdf.numPages, 2) : Math.min(pdf.numPages, 10);
 
         for (let i = 1; i <= maxPages; i++) {
           const page = await pdf.getPage(i);
-          const viewport = page.getViewport({ scale: 1.2 });
+          const scale = isMobile ? 1.0 : 1.2;
+          const viewport = page.getViewport({ scale });
           const canvas = document.createElement("canvas");
           canvas.width = viewport.width;
           canvas.height = viewport.height;
           const ctx = canvas.getContext("2d")!;
           await page.render({ canvasContext: ctx, viewport } as any).promise;
-          rendered.push(canvas.toDataURL("image/jpeg", 0.7));
-          // Free memory
+          rendered.push(canvas.toDataURL("image/jpeg", 0.6));
           canvas.width = 0;
           canvas.height = 0;
           if (cancelled) return;
@@ -101,40 +95,8 @@ export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
     );
   }
 
-  // Mobile with public URL: use iframe embed
-  if (isMobile && dataUrl.startsWith("http")) {
-    return (
-      <div className="space-y-2">
-        <div className="rounded-lg overflow-hidden" style={{ height: 400 }}>
-          <iframe
-            src={dataUrl}
-            className="w-full h-full border-0"
-            title={fileName}
-            style={{ background: "#fff" }}
-          />
-        </div>
-        <p className="text-center text-[10px] text-white/30 py-1">{fileName}</p>
-      </div>
-    );
-  }
-
-  // Canvas rendering failed — fallback to iframe
+  // Fallback: show placeholder with "Abrir PDF" button
   if (error || pages.length === 0) {
-    if (dataUrl.startsWith("http")) {
-      return (
-        <div className="space-y-2">
-          <div className="rounded-lg overflow-hidden" style={{ height: 400 }}>
-            <iframe
-              src={dataUrl}
-              className="w-full h-full border-0"
-              title={fileName}
-              style={{ background: "#fff" }}
-            />
-          </div>
-          <p className="text-center text-[10px] text-white/30 py-1">{fileName}</p>
-        </div>
-      );
-    }
     return (
       <div className="flex flex-col items-center justify-center py-10 gap-3">
         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,0.3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -142,6 +104,11 @@ export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
           <path d="M14 2v6h6M16 13H8M16 17H8" />
         </svg>
         <p className="text-white/30 text-xs">{fileName}</p>
+        {dataUrl.startsWith("http") && (
+          <a href={dataUrl} target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-lg text-xs font-semibold" style={{ background: "rgba(139,92,246,0.15)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.3)" }}>
+            Abrir PDF
+          </a>
+        )}
       </div>
     );
   }

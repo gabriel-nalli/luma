@@ -174,27 +174,12 @@ export default function SubjectDetailPage({
     if (!isPdf) return;
     setUploadingPdf(true);
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const dataUrl = reader.result as string;
-        pdfBase64Cache.current[file.name] = dataUrl;
-        await addSlide({
-          subjectId: id,
-          fileName: file.name,
-          dataUrl,
-          textContent: "",
-        });
-      } catch (err) {
-        console.error("Upload failed:", err);
-      }
-      setUploadingPdf(false);
-    };
-    reader.onerror = () => {
-      console.error("FileReader error");
-      setUploadingPdf(false);
-    };
-    reader.readAsDataURL(file);
+    try {
+      await addSlide({ subjectId: id, fileName: file.name, dataUrl: "", textContent: "" }, file);
+    } catch (err) {
+      console.error("Upload failed:", err);
+    }
+    setUploadingPdf(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -736,7 +721,7 @@ export default function SubjectDetailPage({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="application/pdf,.pdf"
+                accept="application/pdf,.pdf,application/octet-stream"
                 className="hidden"
                 onChange={handlePdfUpload}
               />
