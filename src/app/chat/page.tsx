@@ -5,6 +5,7 @@ import { useStore } from "@/lib/store";
 import { sendChatMessage, transcribeAudio, type ChatMessage } from "@/lib/ai";
 import BottomNav from "@/components/layout/BottomNav";
 import PandaChat from "@/components/mascot/PandaChat";
+import Markdown from "react-markdown";
 
 interface ExtendedMessage extends ChatMessage {
   imageBase64?: string;
@@ -165,7 +166,9 @@ export default function ChatPage() {
                   {msg.imageBase64 && (
                     <img src={msg.imageBase64} alt="" className="rounded-lg mb-2 max-h-48 object-cover" />
                   )}
-                  <p className="text-[13px] leading-[1.6] text-white/80 font-medium whitespace-pre-wrap">{msg.content}</p>
+                  <div className="text-[13px] leading-[1.6] text-white/80 font-medium whitespace-pre-wrap break-words overflow-hidden" style={{ overflowWrap: "anywhere" }}>
+                    <Markdown>{msg.content}</Markdown>
+                  </div>
                 </div>
               </div>
             ))}
