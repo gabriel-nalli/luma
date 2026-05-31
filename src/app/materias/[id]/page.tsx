@@ -170,14 +170,19 @@ export default function SubjectDetailPage({
   async function handlePdfUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    if (!isPdf) return;
+    const isPdf = file.type === "application/pdf" || file.type === "application/octet-stream" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) { alert("Selecione um arquivo PDF"); return; }
     setUploadingPdf(true);
 
     try {
-      await addSlide({ subjectId: id, fileName: file.name, dataUrl: "", textContent: "" }, file);
+      const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 60000));
+      await Promise.race([
+        addSlide({ subjectId: id, fileName: file.name, dataUrl: "", textContent: "" }, file),
+        timeout,
+      ]);
     } catch (err) {
       console.error("Upload failed:", err);
+      alert("Erro ao enviar PDF. Tente novamente.");
     }
     setUploadingPdf(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -721,7 +726,7 @@ export default function SubjectDetailPage({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="application/pdf,.pdf,application/octet-stream"
+                accept="*/*"
                 className="hidden"
                 onChange={handlePdfUpload}
               />
