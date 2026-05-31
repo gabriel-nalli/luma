@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 interface PdfPreviewProps {
   dataUrl: string;
@@ -10,8 +10,30 @@ interface PdfPreviewProps {
 export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
   const [pages, setPages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const attemptedRef = useRef(false);
+
+  // Detect mobile
+  const isMobile = typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   useEffect(() => {
+    // Reset on dataUrl change
+    attemptedRef.current = false;
+    setPages([]);
+    setLoading(true);
+    setError(false);
+  }, [dataUrl]);
+
+  useEffect(() => {
+    if (attemptedRef.current) return;
+    attemptedRef.current = true;
+
+    // On mobile with a public URL, skip canvas rendering (too heavy)
+    if (isMobile && dataUrl.startsWith("http")) {
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
 
     async function render() {
@@ -27,22 +49,28 @@ export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
           for (let i = 0; i < binary.length; i++) uint8[i] = binary.charCodeAt(i);
         } else {
           const res = await fetch(dataUrl);
+          if (!res.ok) throw new Error("fetch failed");
           const buffer = await res.arrayBuffer();
           uint8 = new Uint8Array(buffer);
         }
 
         const pdf = await pdfjsLib.getDocument({ data: uint8 }).promise;
         const rendered: string[] = [];
+        // Limit pages to prevent memory issues
+        const maxPages = Math.min(pdf.numPages, 10);
 
-        for (let i = 1; i <= pdf.numPages; i++) {
+        for (let i = 1; i <= maxPages; i++) {
           const page = await pdf.getPage(i);
-          const viewport = page.getViewport({ scale: 1.5 });
+          const viewport = page.getViewport({ scale: 1.2 });
           const canvas = document.createElement("canvas");
           canvas.width = viewport.width;
           canvas.height = viewport.height;
           const ctx = canvas.getContext("2d")!;
           await page.render({ canvasContext: ctx, viewport } as any).promise;
-          rendered.push(canvas.toDataURL("image/jpeg", 0.8));
+          rendered.push(canvas.toDataURL("image/jpeg", 0.7));
+          // Free memory
+          canvas.width = 0;
+          canvas.height = 0;
           if (cancelled) return;
         }
 
@@ -51,13 +79,16 @@ export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
           setLoading(false);
         }
       } catch {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setError(true);
+          setLoading(false);
+        }
       }
     }
 
     render();
     return () => { cancelled = true; };
-  }, [dataUrl]);
+  }, [dataUrl, isMobile]);
 
   if (loading) {
     return (
@@ -70,7 +101,40 @@ export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
     );
   }
 
-  if (pages.length === 0) {
+  // Mobile with public URL: use iframe embed
+  if (isMobile && dataUrl.startsWith("http")) {
+    return (
+      <div className="space-y-2">
+        <div className="rounded-lg overflow-hidden" style={{ height: 400 }}>
+          <iframe
+            src={dataUrl}
+            className="w-full h-full border-0"
+            title={fileName}
+            style={{ background: "#fff" }}
+          />
+        </div>
+        <p className="text-center text-[10px] text-white/30 py-1">{fileName}</p>
+      </div>
+    );
+  }
+
+  // Canvas rendering failed — fallback to iframe
+  if (error || pages.length === 0) {
+    if (dataUrl.startsWith("http")) {
+      return (
+        <div className="space-y-2">
+          <div className="rounded-lg overflow-hidden" style={{ height: 400 }}>
+            <iframe
+              src={dataUrl}
+              className="w-full h-full border-0"
+              title={fileName}
+              style={{ background: "#fff" }}
+            />
+          </div>
+          <p className="text-center text-[10px] text-white/30 py-1">{fileName}</p>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col items-center justify-center py-10 gap-3">
         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,0.3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

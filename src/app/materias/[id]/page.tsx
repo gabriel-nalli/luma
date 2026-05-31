@@ -169,21 +169,29 @@ export default function SubjectDetailPage({
 
   async function handlePdfUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || file.type !== "application/pdf") return;
+    if (!file) return;
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) return;
     setUploadingPdf(true);
 
     const reader = new FileReader();
     reader.onload = async () => {
-      const dataUrl = reader.result as string;
-      // Store base64 temporarily for AI calls
-      const tempId = `pending_${Date.now()}`;
-      pdfBase64Cache.current[file.name] = dataUrl;
-      addSlide({
-        subjectId: id,
-        fileName: file.name,
-        dataUrl,
-        textContent: "",
-      });
+      try {
+        const dataUrl = reader.result as string;
+        pdfBase64Cache.current[file.name] = dataUrl;
+        await addSlide({
+          subjectId: id,
+          fileName: file.name,
+          dataUrl,
+          textContent: "",
+        });
+      } catch (err) {
+        console.error("Upload failed:", err);
+      }
+      setUploadingPdf(false);
+    };
+    reader.onerror = () => {
+      console.error("FileReader error");
       setUploadingPdf(false);
     };
     reader.readAsDataURL(file);
@@ -728,7 +736,7 @@ export default function SubjectDetailPage({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="application/pdf"
+                accept="application/pdf,.pdf"
                 className="hidden"
                 onChange={handlePdfUpload}
               />

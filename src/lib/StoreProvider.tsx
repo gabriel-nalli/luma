@@ -221,18 +221,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addSlide = useCallback(async (slide: Omit<SlideFile, "id" | "createdAt">) => {
-    const base64 = slide.dataUrl.split(",")[1];
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: "application/pdf" });
-    const safeName = slide.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const filePath = `${uid}/${Date.now()}_${safeName}`;
-    await supabase.storage.from("luma-pdfs").upload(filePath, blob, { contentType: "application/pdf" });
-    const { data: urlData } = supabase.storage.from("luma-pdfs").getPublicUrl(filePath);
-    const publicUrl = urlData?.publicUrl || "";
-    const { data } = await supabase.from("pdfs").insert({ user_id: uid, subject_id: slide.subjectId, file_path: publicUrl, original_name: slide.fileName, extracted_text: slide.textContent, processing_status: "done" }).select().single();
-    if (data) setState((s) => ({ ...s, slides: [...s.slides, { id: data.id, subjectId: data.subject_id, fileName: data.original_name, dataUrl: publicUrl, textContent: data.extracted_text || "", createdAt: data.uploaded_at }] }));
+    try {
+      const base64 = slide.dataUrl.split(",")[1];
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const safeName = slide.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filePath = `${uid}/${Date.now()}_${safeName}`;
+      const { error: uploadError } = await supabase.storage.from("luma-pdfs").upload(filePath, blob, { contentType: "application/pdf", upsert: true });
+      if (uploadError) { console.error("Upload error:", uploadError); return; }
+      const { data: urlData } = supabase.storage.from("luma-pdfs").getPublicUrl(filePath);
+      const publicUrl = urlData?.publicUrl || "";
+      const { data, error: insertError } = await supabase.from("pdfs").insert({ user_id: uid, subject_id: slide.subjectId, file_path: publicUrl, original_name: slide.fileName, extracted_text: slide.textContent, processing_status: "done" }).select().single();
+      if (insertError) { console.error("Insert error:", insertError); return; }
+      if (data) setState((s) => ({ ...s, slides: [...s.slides, { id: data.id, subjectId: data.subject_id, fileName: data.original_name, dataUrl: publicUrl, textContent: data.extracted_text || "", createdAt: data.uploaded_at }] }));
+    } catch (err) {
+      console.error("addSlide error:", err);
+    }
   }, [uid]);
 
   const updateSlide = useCallback(async (id: string, patch: Partial<Omit<SlideFile, "id" | "createdAt">>) => {
