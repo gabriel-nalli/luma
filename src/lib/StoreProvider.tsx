@@ -107,7 +107,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         let reminders: Reminder[] = [];
         try { const raw = localStorage.getItem("luma_reminders"); if (raw) reminders = JSON.parse(raw); } catch {}
 
-        const { data: statsRow } = await supabase.from("user_stats").select("*").eq("user_id", uid).single();
+        const { data: statsRow } = await supabase.from("user_stats").select("*").eq("user_id", uid).maybeSingle();
         const streak = { current: statsRow?.current_streak || 0, lastStudyDate: statsRow?.last_active_date || "" };
 
         setState({ subjects, studyPlans, notes, questions, achievements: DEFAULT_ACHIEVEMENTS, reminders, slides, streak });
@@ -120,6 +120,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const newStreak = statsRow.last_active_date === yesterday ? (statsRow.current_streak || 0) + 1 : 1;
           await supabase.from("user_stats").update({ current_streak: newStreak, longest_streak: Math.max(newStreak, statsRow.longest_streak || 0), last_active_date: today }).eq("user_id", uid);
           setState((s) => ({ ...s, streak: { current: newStreak, lastStudyDate: today } }));
+        } else if (!statsRow) {
+          await supabase.from("user_stats").insert({ user_id: uid, current_streak: 1, longest_streak: 1, last_active_date: today });
+          setState((s) => ({ ...s, streak: { current: 1, lastStudyDate: today } }));
         }
       } catch {
         setLoaded(true);
