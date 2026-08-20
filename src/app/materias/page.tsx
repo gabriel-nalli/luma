@@ -21,24 +21,41 @@ const SUBJECT_COLORS: Record<string, { accent: string; transparent: string; semi
   "#60A5FA": { accent: "#3b82f6", transparent: "rgba(59, 130, 246, 0.15)", semi: "rgba(59, 130, 246, 0.4)", stroke: "#93c5fd" },
 };
 
+const SEMESTERS = Array.from({ length: 10 }, (_, i) => i + 1);
+
 function getColors(color: string) {
   return SUBJECT_COLORS[color] || { accent: color, transparent: `${color}26`, semi: `${color}66`, stroke: color };
 }
 
 export default function MateriasPage() {
   const router = useRouter();
-  const { state, addSubject } = useStore();
+  const { state, addSubject, deleteSubject } = useStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0].color);
+  const [selectedSemester, setSelectedSemester] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   function handleCreate() {
     if (!name.trim()) return;
-    addSubject({ name: name.trim(), color: selectedColor, icon: "book" });
+    addSubject({ name: name.trim(), color: selectedColor, icon: "book", semester: selectedSemester });
     setName("");
     setSelectedColor(COLOR_OPTIONS[0].color);
+    setSelectedSemester(null);
     setModalOpen(false);
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteSubject(deleteTarget.id);
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
   }
 
   return (
@@ -85,9 +102,21 @@ export default function MateriasPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="text-sm font-semibold text-white/90 truncate group-hover:text-white transition-colors">{subject.name}</h4>
-                      <p className="text-[11px] text-white/40 mt-0.5">{planCount} cronograma{planCount !== 1 ? "s" : ""} &bull; {noteCount} nota{noteCount !== 1 ? "s" : ""}</p>
+                      <p className="text-[11px] text-white/40 mt-0.5">
+                        {subject.semester ? <><span style={{ color: colors.stroke }} className="font-medium">{subject.semester}º semestre</span> &bull; </> : null}
+                        {planCount} cronograma{planCount !== 1 ? "s" : ""} &bull; {noteCount} nota{noteCount !== 1 ? "s" : ""}
+                      </p>
                     </div>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="subject-chevron text-white/30 ml-2"><polyline points="9 18 15 12 9 6" /></svg>
+                    <button
+                      type="button"
+                      aria-label={`Apagar ${subject.name}`}
+                      title="Apagar materia"
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: subject.id, name: subject.name }); }}
+                      className="subject-delete ml-1 p-2 rounded-lg shrink-0"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+                    </button>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="subject-chevron text-white/30 ml-1"><polyline points="9 18 15 12 9 6" /></svg>
                   </div>
                 );
               })}
@@ -117,6 +146,29 @@ export default function MateriasPage() {
           style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "#fff" }}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()}
         />
+        <label className="block text-xs mb-2 text-white/50">Semestre <span className="text-white/30">(opcional)</span></label>
+        <div className="grid grid-cols-5 gap-2 mb-4">
+          {SEMESTERS.map((n) => {
+            const active = selectedSemester === n;
+            return (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setSelectedSemester(active ? null : n)}
+                className="py-2 rounded-lg text-sm font-semibold transition-all"
+                style={{
+                  background: active ? "rgba(139,92,246,0.35)" : "rgba(255,255,255,0.05)",
+                  border: active ? "1px solid #a78bfa" : "1px solid rgba(255,255,255,0.08)",
+                  color: active ? "#fff" : "rgba(255,255,255,0.6)",
+                  boxShadow: active ? "0 0 14px rgba(139,92,246,0.35)" : "none",
+                  transform: active ? "scale(1.05)" : "scale(1)",
+                }}
+              >
+                {n}º
+              </button>
+            );
+          })}
+        </div>
         <label className="block text-xs mb-2 text-white/50">Cor</label>
         <div className="flex gap-3 mb-5">
           {COLOR_OPTIONS.map((c) => (
@@ -126,6 +178,26 @@ export default function MateriasPage() {
         <div className="flex gap-3">
           <button onClick={() => setModalOpen(false)} className="flex-1 py-2.5 rounded-lg text-sm font-semibold" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)" }}>Cancelar</button>
           <button onClick={handleCreate} className="flex-1 py-2.5 rounded-lg text-sm font-bold" style={{ background: "#8b5cf6", color: "#fff", opacity: name.trim() ? 1 : 0.5 }}>Criar</button>
+        </div>
+      </Modal>
+
+      {/* Modal Apagar Materia */}
+      <Modal open={!!deleteTarget} onClose={() => !deleting && setDeleteTarget(null)}>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(244,63,94,0.15)", border: "1px solid rgba(244,63,94,0.4)" }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fda4af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+          </div>
+          <h2 className="text-lg font-bold text-white">Apagar materia?</h2>
+        </div>
+        <p className="text-sm text-white/60 mb-1">
+          Voce esta prestes a apagar <span className="text-white font-semibold">{deleteTarget?.name}</span>.
+        </p>
+        <p className="text-xs text-white/40 mb-5">
+          Todos os cronogramas, notas, PDFs e questoes dessa materia tambem serao apagados. Essa acao nao pode ser desfeita.
+        </p>
+        <div className="flex gap-3">
+          <button onClick={() => setDeleteTarget(null)} disabled={deleting} className="flex-1 py-2.5 rounded-lg text-sm font-semibold" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)" }}>Cancelar</button>
+          <button onClick={handleDelete} disabled={deleting} className="flex-1 py-2.5 rounded-lg text-sm font-bold" style={{ background: "#f43f5e", color: "#fff", opacity: deleting ? 0.6 : 1 }}>{deleting ? "Apagando..." : "Apagar"}</button>
         </div>
       </Modal>
 

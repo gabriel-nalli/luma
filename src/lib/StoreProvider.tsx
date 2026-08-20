@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef } f
 import { supabase, LUMA_USER_ID } from "./supabase";
 // Inline types and helpers to avoid circular dependency
 
-interface Subject { id: string; name: string; color: string; icon: string; createdAt: string; }
+interface Subject { id: string; name: string; color: string; icon: string; semester?: number | null; createdAt: string; }
 interface StudyPlanStep { id: string; label: string; icon: string; completed: boolean; }
 interface StudyPlan { id: string; subjectId: string; title: string; steps: StudyPlanStep[]; createdAt: string; }
 interface Note { id: string; subjectId: string; title: string; content: string; createdAt: string; updatedAt: string; }
@@ -84,7 +84,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           supabase.from("question_attempts").select("*").eq("user_id", uid),
         ]);
 
-        const subjects = (subjectsRes.data || []).map((s: any) => ({ id: s.id, name: s.name, color: s.color, icon: s.icon || "book", createdAt: s.created_at }));
+        const subjects = (subjectsRes.data || []).map((s: any) => ({ id: s.id, name: s.name, color: s.color, icon: s.icon || "book", semester: s.semester ?? null, createdAt: s.created_at }));
         const notes = (notesRes.data || []).map((n: any) => ({ id: n.id, subjectId: n.subject_id, title: n.title, content: n.content || "", createdAt: n.created_at, updatedAt: n.updated_at || n.created_at }));
 
         const stepsMap: Record<string, StudyPlanStep[]> = {};
@@ -136,8 +136,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [state.reminders, loaded]);
 
   const addSubject = useCallback(async (subject: Omit<Subject, "id" | "createdAt">) => {
-    const { data } = await supabase.from("subjects").insert({ user_id: uid, name: subject.name, color: subject.color, icon: subject.icon }).select().single();
-    if (data) setState((s) => ({ ...s, subjects: [...s.subjects, { id: data.id, name: data.name, color: data.color, icon: data.icon, createdAt: data.created_at }] }));
+    const { data } = await supabase.from("subjects").insert({ user_id: uid, name: subject.name, color: subject.color, icon: subject.icon, semester: subject.semester ?? null }).select().single();
+    if (data) setState((s) => ({ ...s, subjects: [...s.subjects, { id: data.id, name: data.name, color: data.color, icon: data.icon, semester: data.semester ?? null, createdAt: data.created_at }] }));
   }, [uid]);
 
   const updateSubject = useCallback(async (id: string, patch: Partial<Omit<Subject, "id" | "createdAt">>) => {
@@ -146,8 +146,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const deleteSubject = useCallback(async (id: string) => {
+    // schedules/notes cascateiam no banco; pdfs e questions nao tem FK -> apagar manualmente
+    const { data: pdfs } = await supabase.from("pdfs").select("id, file_path").eq("subject_id", id);
+    const storagePaths = (pdfs || [])
+      .map((p: any) => (p.file_path || "").split("/luma-pdfs/")[1])
+      .filter(Boolean)
+      .map((path: string) => decodeURIComponent(path));
+    if (storagePaths.length) await supabase.storage.from("luma-pdfs").remove(storagePaths);
+    await Promise.all([
+      supabase.from("pdfs").delete().eq("subject_id", id),
+      supabase.from("questions").delete().eq("subject_id", id),
+    ]);
     await supabase.from("subjects").delete().eq("id", id);
-    setState((s) => ({ ...s, subjects: s.subjects.filter((sub) => sub.id !== id), studyPlans: s.studyPlans.filter((p) => p.subjectId !== id), notes: s.notes.filter((n) => n.subjectId !== id), slides: s.slides.filter((sl) => sl.subjectId !== id) }));
+    setState((s) => ({ ...s, subjects: s.subjects.filter((sub) => sub.id !== id), studyPlans: s.studyPlans.filter((p) => p.subjectId !== id), notes: s.notes.filter((n) => n.subjectId !== id), questions: s.questions.filter((q) => q.subjectId !== id), slides: s.slides.filter((sl) => sl.subjectId !== id) }));
   }, []);
 
   const addStudyPlan = useCallback(async (plan: Omit<StudyPlan, "id" | "createdAt">) => {

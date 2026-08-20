@@ -314,6 +314,14 @@ export default function SubjectDetailPage({
             <h1 className="text-2xl font-bold" style={{ color: subject.color }}>
               {subject.name}
             </h1>
+            {subject.semester ? (
+              <span
+                className="text-[11px] font-semibold px-2 py-0.5 rounded-full ml-1 shrink-0"
+                style={{ background: `${subject.color}22`, border: `1px solid ${subject.color}55`, color: subject.color }}
+              >
+                {subject.semester}º sem
+              </span>
+            ) : null}
           </div>
         </motion.div>
 

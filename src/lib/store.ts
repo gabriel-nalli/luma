@@ -4,7 +4,7 @@ import { supabase, LUMA_USER_ID } from "./supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface Subject { id: string; name: string; color: string; icon: string; createdAt: string; }
+export interface Subject { id: string; name: string; color: string; icon: string; semester?: number | null; createdAt: string; }
 export interface StudyPlanStep { id: string; label: string; icon: string; completed: boolean; }
 export interface StudyPlan { id: string; subjectId: string; title: string; steps: StudyPlanStep[]; createdAt: string; }
 export interface Note { id: string; subjectId: string; title: string; content: string; createdAt: string; updatedAt: string; }
