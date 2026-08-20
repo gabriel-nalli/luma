@@ -33,19 +33,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      const u = session?.user || null;
+    // IMPORTANTE: nunca fazer `await` de chamadas do Supabase dentro do callback
+    // do onAuthStateChange. O auth-js segura um lock enquanto espera o callback,
+    // e qualquer query precisa desse mesmo lock pra obter o token -> deadlock
+    // (o app ficava preso em "Carregando..." ao dar refresh logado).
+    function applySession(u: User | null) {
       setUser(u);
-      if (u?.email) setIsAdmin(await checkAdmin(u.email));
       setLoading(false);
+      if (u?.email) {
+        const email = u.email;
+        // Adia pra fora do lock de auth (fire-and-forget)
+        setTimeout(() => {
+          checkAdmin(email).then(setIsAdmin).catch(() => setIsAdmin(false));
+        }, 0);
+      } else {
+        setIsAdmin(false);
+      }
+    }
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      applySession(session?.user || null);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const u = session?.user || null;
-      setUser(u);
-      if (u?.email) setIsAdmin(await checkAdmin(u.email));
-      else setIsAdmin(false);
-      setLoading(false);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      applySession(session?.user || null);
     });
 
     return () => subscription.unsubscribe();
