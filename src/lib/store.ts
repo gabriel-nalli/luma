@@ -10,7 +10,7 @@ export interface StudyPlan { id: string; subjectId: string; title: string; steps
 export interface Note { id: string; subjectId: string; title: string; content: string; createdAt: string; updatedAt: string; }
 export interface Question { id: string; subjectId: string; studyPlanId?: string; question: string; options?: string[]; correctAnswer: string; explanation: string; userAnswer?: string; isCorrect?: boolean; }
 export interface Achievement { id: string; title: string; description: string; icon: string; unlockedAt?: string; requirement: { type: string; count: number }; }
-export interface Reminder { id: string; subjectId?: string; title: string; date: string; done: boolean; }
+export interface Reminder { id: string; subjectId?: string; title: string; date: string; time?: string | null; done: boolean; notify3d: boolean; notify1d: boolean; notifyMorning: boolean; notifyBefore: boolean; }
 export interface SlideFile { id: string; subjectId: string; fileName: string; dataUrl: string; textContent: string; summary?: string; generatedQuestions?: Question[]; generatedSchedule?: StudyPlanStep[]; createdAt: string; }
 export interface AppState { subjects: Subject[]; studyPlans: StudyPlan[]; notes: Note[]; questions: Question[]; achievements: Achievement[]; reminders: Reminder[]; slides: SlideFile[]; streak: { current: number; lastStudyDate: string }; }
 

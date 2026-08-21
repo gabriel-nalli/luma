@@ -10,13 +10,23 @@ interface StudyPlan { id: string; subjectId: string; title: string; steps: Study
 interface Note { id: string; subjectId: string; title: string; content: string; createdAt: string; updatedAt: string; }
 interface Question { id: string; subjectId: string; studyPlanId?: string; question: string; options?: string[]; correctAnswer: string; explanation: string; userAnswer?: string; isCorrect?: boolean; }
 interface Achievement { id: string; title: string; description: string; icon: string; unlockedAt?: string; requirement: { type: string; count: number }; }
-interface Reminder { id: string; subjectId?: string; title: string; date: string; done: boolean; }
+interface Reminder { id: string; subjectId?: string; title: string; date: string; time?: string | null; done: boolean; notify3d: boolean; notify1d: boolean; notifyMorning: boolean; notifyBefore: boolean; }
 interface SlideFile { id: string; subjectId: string; fileName: string; dataUrl: string; textContent: string; summary?: string; generatedQuestions?: Question[]; generatedSchedule?: StudyPlanStep[]; createdAt: string; }
 interface AppState { subjects: Subject[]; studyPlans: StudyPlan[]; notes: Note[]; questions: Question[]; achievements: Achievement[]; reminders: Reminder[]; slides: SlideFile[]; streak: { current: number; lastStudyDate: string }; }
 
 function generateId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function mapReminder(r: any): Reminder {
+  return {
+    id: r.id, subjectId: r.subject_id || undefined, title: r.title, date: String(r.date).slice(0, 10), time: r.time ? String(r.time).slice(0, 5) : null, done: !!r.done,
+    notify3d: r.notify_3d ?? true, notify1d: r.notify_1d ?? true, notifyMorning: r.notify_morning ?? true, notifyBefore: r.notify_before ?? true,
+  };
+}
+function sortReminders(a: Reminder, b: Reminder) {
+  return (a.date + (a.time || "99:99")).localeCompare(b.date + (b.time || "99:99"));
 }
 
 const DEFAULT_ACHIEVEMENTS: Achievement[] = [
@@ -45,9 +55,9 @@ interface StoreContextType {
   deleteNote: (id: string) => Promise<void>;
   addQuestion: (q: Omit<Question, "id">) => Promise<void>;
   answerQuestion: (id: string, answer: string) => Promise<void>;
-  addReminder: (r: Omit<Reminder, "id">) => void;
-  toggleReminder: (id: string) => void;
-  deleteReminder: (id: string) => void;
+  addReminder: (r: Omit<Reminder, "id">) => Promise<void>;
+  toggleReminder: (id: string) => Promise<void>;
+  deleteReminder: (id: string) => Promise<void>;
   addSlide: (s: Omit<SlideFile, "id" | "createdAt">, file?: File) => Promise<void>;
   updateSlide: (id: string, patch: Partial<Omit<SlideFile, "id" | "createdAt">>) => Promise<void>;
   deleteSlide: (id: string) => Promise<void>;
@@ -104,8 +114,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const { data: pdfsData } = await supabase.from("pdfs").select("*").eq("user_id", uid).order("uploaded_at");
         const slides = (pdfsData || []).map((p: any) => ({ id: p.id, subjectId: p.subject_id, fileName: p.original_name, dataUrl: p.file_path || "", textContent: p.extracted_text || "", summary: typeof p.summary === "string" ? p.summary : p.summary?.text || undefined, generatedQuestions: p.generated_questions || undefined, generatedSchedule: p.generated_schedule || undefined, createdAt: p.uploaded_at }));
 
-        let reminders: Reminder[] = [];
-        try { const raw = localStorage.getItem("luma_reminders"); if (raw) reminders = JSON.parse(raw); } catch {}
+        // Lembretes agora vivem no banco (luma_reminders). Migra uma unica vez o que existia no localStorage.
+        try {
+          const raw = localStorage.getItem("luma_reminders");
+          if (raw && !localStorage.getItem("luma_reminders_migrated")) {
+            const legacy: any[] = JSON.parse(raw);
+            if (Array.isArray(legacy) && legacy.length) {
+              await supabase.from("luma_reminders").insert(legacy.filter((r) => r?.title && r?.date).map((r) => ({
+                user_id: uid, title: String(r.title), date: String(r.date).slice(0, 10), subject_id: r.subjectId || null, done: !!r.done,
+              })));
+            }
+            localStorage.setItem("luma_reminders_migrated", "1");
+          }
+        } catch {}
+        const { data: remindersData } = await supabase.from("luma_reminders").select("*").eq("user_id", uid).order("date").order("time", { nullsFirst: false });
+        const reminders: Reminder[] = (remindersData || []).map(mapReminder);
 
         const { data: statsRow } = await supabase.from("user_stats").select("*").eq("user_id", uid).maybeSingle();
         const streak = { current: statsRow?.current_streak || 0, lastStudyDate: statsRow?.last_active_date || "" };
@@ -129,11 +152,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
     })();
   }, [uid]);
-
-  // Save reminders to localStorage
-  useEffect(() => {
-    if (loaded) try { localStorage.setItem("luma_reminders", JSON.stringify(state.reminders)); } catch {}
-  }, [state.reminders, loaded]);
 
   const addSubject = useCallback(async (subject: Omit<Subject, "id" | "createdAt">) => {
     const { data } = await supabase.from("subjects").insert({ user_id: uid, name: subject.name, color: subject.color, icon: subject.icon, semester: subject.semester ?? null }).select().single();
@@ -222,16 +240,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, [uid]);
 
-  const addReminder = useCallback((reminder: Omit<Reminder, "id">) => {
-    setState((s) => ({ ...s, reminders: [...s.reminders, { ...reminder, id: generateId() }] }));
+  const addReminder = useCallback(async (reminder: Omit<Reminder, "id">) => {
+    const { data } = await supabase.from("luma_reminders").insert({
+      user_id: uid, title: reminder.title, date: reminder.date.slice(0, 10), time: reminder.time || null, subject_id: reminder.subjectId || null, done: reminder.done,
+      notify_3d: reminder.notify3d, notify_1d: reminder.notify1d, notify_morning: reminder.notifyMorning, notify_before: reminder.notifyBefore,
+    }).select().single();
+    if (data) setState((s) => ({ ...s, reminders: [...s.reminders, mapReminder(data)].sort(sortReminders) }));
+  }, [uid]);
+
+  const toggleReminder = useCallback(async (id: string) => {
+    let next = false;
+    setState((s) => {
+      const cur = s.reminders.find((r) => r.id === id);
+      next = !cur?.done;
+      return { ...s, reminders: s.reminders.map((r) => r.id === id ? { ...r, done: next } : r) };
+    });
+    await supabase.from("luma_reminders").update({ done: next }).eq("id", id);
   }, []);
 
-  const toggleReminder = useCallback((id: string) => {
-    setState((s) => ({ ...s, reminders: s.reminders.map((r) => r.id === id ? { ...r, done: !r.done } : r) }));
-  }, []);
-
-  const deleteReminder = useCallback((id: string) => {
+  const deleteReminder = useCallback(async (id: string) => {
     setState((s) => ({ ...s, reminders: s.reminders.filter((r) => r.id !== id) }));
+    await supabase.from("luma_reminders").delete().eq("id", id);
   }, []);
 
   const addSlide = useCallback(async (slide: Omit<SlideFile, "id" | "createdAt">, file?: File) => {
