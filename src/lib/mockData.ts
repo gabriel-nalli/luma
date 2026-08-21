@@ -184,6 +184,7 @@ const REMINDERS = [
     title: "Estudar Capitulo 2: Condicionamento Operante",
     date: "2026-05-27T18:00:00.000Z",
     done: false,
+    notify3d: true, notify1d: true, notifyMorning: true, notifyBefore: true,
   },
   {
     id: "rem_02",
@@ -191,6 +192,7 @@ const REMINDERS = [
     title: "Entregar esboço do projeto de pesquisa",
     date: "2026-05-28T23:59:00.000Z",
     done: false,
+    notify3d: true, notify1d: true, notifyMorning: true, notifyBefore: true,
   },
   {
     id: "rem_03",
@@ -198,6 +200,7 @@ const REMINDERS = [
     title: "Revisar teorias de Piaget e Vygotsky",
     date: "2026-05-30T10:00:00.000Z",
     done: false,
+    notify3d: true, notify1d: true, notifyMorning: true, notifyBefore: true,
   },
 ];
 
