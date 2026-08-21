@@ -1,9 +1,34 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { supabase, LUMA_USER_ID } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/AuthProvider";
 
 const SUPABASE_URL = "https://vnrfzgbqiagxidcaeanr.supabase.co";
+const DEVICE_KEY = "luma_device_id";
+
+// Cada aparelho tem seu proprio id (uuid aleatorio guardado no navegador). A tabela
+// push_subscriptions e compartilhada e tem UNIQUE(user_id); usando um id por aparelho,
+// varios celulares do Luma convivem sem colidir com os usuarios dos outros apps.
+export function getDeviceId(): string {
+  try {
+    let id = localStorage.getItem(DEVICE_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(DEVICE_KEY, id);
+    }
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
+
+function deviceLabel(): string {
+  const ua = navigator.userAgent;
+  const os = /iphone/i.test(ua) ? "iPhone" : /ipad/i.test(ua) ? "iPad" : /android/i.test(ua) ? "Android" : /mac os x/i.test(ua) ? "Mac" : /windows/i.test(ua) ? "Windows" : "Outro";
+  const browser = /crios|chrome/i.test(ua) && !/edg/i.test(ua) ? "Chrome" : /safari/i.test(ua) ? "Safari" : /firefox|fxios/i.test(ua) ? "Firefox" : /edg/i.test(ua) ? "Edge" : "";
+  return [os, browser].filter(Boolean).join(" · ");
+}
 
 export type PushStatus =
   | "loading"      // ainda verificando
@@ -47,25 +72,26 @@ async function subscribeWithVapid(reg: ServiceWorkerRegistration): Promise<PushS
   return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
 }
 
-async function hasDbRow(endpoint: string) {
+async function hasDbRow(endpoint: string, deviceId: string) {
   const { data, error } = await supabase
     .from("push_subscriptions")
-    .select("id")
+    .select("id, user_id")
     .eq("app", "luma")
-    .eq("endpoint", endpoint)
-    .maybeSingle();
+    .eq("endpoint", endpoint);
   if (error) throw new Error(error.message);
-  return !!data;
+  // precisa existir a linha DESTE aparelho (id por aparelho); linhas antigas do mesmo endpoint sao trocadas
+  return (data || []).some((r) => r.user_id === deviceId) && (data || []).length === 1;
 }
 
-// A tabela push_subscriptions e compartilhada com outros apps e tem UNIQUE(user_id).
-// O Luma usa um user_id fixo e exclusivo, entao o upsert por user_id so toca a linha do Luma.
-async function saveSubscription(subscription: PushSubscription) {
+async function saveSubscription(subscription: PushSubscription, deviceId: string, email: string | null) {
   const sub = subscription.toJSON();
   if (!sub.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) throw new Error("Inscricao sem endpoint/chaves");
+  // Remove registros antigos do Luma para este mesmo endpoint (ex.: o user_id fixo de antes),
+  // evitando push duplicado no mesmo aparelho. So toca linhas app='luma'.
+  await supabase.from("push_subscriptions").delete().eq("app", "luma").eq("endpoint", sub.endpoint).neq("user_id", deviceId);
   const { error } = await supabase.from("push_subscriptions").upsert(
     {
-      user_id: LUMA_USER_ID,
+      user_id: deviceId,
       endpoint: sub.endpoint,
       p256dh: sub.keys.p256dh,
       auth: sub.keys.auth,
@@ -75,16 +101,24 @@ async function saveSubscription(subscription: PushSubscription) {
     { onConflict: "user_id" }
   );
   if (error) throw new Error(error.message);
+  await supabase.from("luma_devices").upsert(
+    { device_id: deviceId, email, user_agent: navigator.userAgent.slice(0, 300), label: deviceLabel(), last_seen_at: new Date().toISOString() },
+    { onConflict: "device_id" }
+  );
 }
 
-async function ensureSubscribed(): Promise<void> {
+async function ensureSubscribed(email: string | null): Promise<void> {
+  const deviceId = getDeviceId();
   const reg = await getRegistration();
   let sub = await reg.pushManager.getSubscription();
   if (!sub) sub = await subscribeWithVapid(reg);
-  if (!(await hasDbRow(sub.endpoint))) await saveSubscription(sub);
+  if (!(await hasDbRow(sub.endpoint, deviceId))) await saveSubscription(sub, deviceId, email);
+  else await supabase.from("luma_devices").upsert({ device_id: deviceId, email, label: deviceLabel(), last_seen_at: new Date().toISOString() }, { onConflict: "device_id" });
 }
 
 export function usePushNotifications() {
+  const { user } = useAuth();
+  const email = user?.email ?? null;
   const [status, setStatus] = useState<PushStatus>("loading");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -96,7 +130,7 @@ export function usePushNotifications() {
     if (perm === "denied") { setStatus("denied"); return; }
     if (perm === "default") { setStatus("default"); return; }
     try {
-      await ensureSubscribed();
+      await ensureSubscribed(email);
       setErrorMsg(null);
       setStatus("active");
     } catch (e) {
@@ -104,7 +138,7 @@ export function usePushNotifications() {
       setErrorMsg((e as Error)?.message || String(e));
       setStatus("inactive");
     }
-  }, []);
+  }, [email]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -115,7 +149,7 @@ export function usePushNotifications() {
     try {
       const perm = await Notification.requestPermission();
       if (perm !== "granted") { setStatus(perm === "denied" ? "denied" : "default"); return false; }
-      await ensureSubscribed();
+      await ensureSubscribed(email);
       setStatus("active");
       return true;
     } catch (e) {
@@ -126,14 +160,14 @@ export function usePushNotifications() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [email]);
 
   const sendTest = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/luma-notifications`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Teste do Luma \u{1F43C}", body: "Se voce esta vendo isso, as notificacoes estao funcionando!", url: "/" }),
+        body: JSON.stringify({ title: "Teste do Luma \u{1F43C}", body: "Se voce esta vendo isso, as notificacoes estao funcionando!", url: "/", source: "test" }),
       });
       const json = await res.json();
       if (json.error) return { ok: false, message: json.error };
