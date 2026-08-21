@@ -30,6 +30,7 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
 // ─── Re-export useStore from provider ─────────────────────────────────────────
 
 export { useStore } from "./StoreProvider";
+export { resolveCorrectAnswer, isAnswerCorrect } from "./answers";
 
 // ─── Performance stats helpers ────────────────────────────────────────────────
 

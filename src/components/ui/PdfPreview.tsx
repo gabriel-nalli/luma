@@ -11,6 +11,7 @@ export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
   const [pages, setPages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [missing, setMissing] = useState(false);
   const attemptedRef = useRef(false);
 
   // Detect mobile
@@ -22,6 +23,7 @@ export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
     setPages([]);
     setLoading(true);
     setError(false);
+    setMissing(false);
   }, [dataUrl]);
 
   useEffect(() => {
@@ -43,7 +45,10 @@ export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
           for (let i = 0; i < binary.length; i++) uint8[i] = binary.charCodeAt(i);
         } else {
           const res = await fetch(dataUrl);
-          if (!res.ok) throw new Error("fetch failed");
+          if (!res.ok) {
+            if (res.status === 400 || res.status === 404) setMissing(true);
+            throw new Error(`fetch failed: ${res.status}`);
+          }
           const buffer = await res.arrayBuffer();
           uint8 = new Uint8Array(buffer);
         }
@@ -104,7 +109,12 @@ export default function PdfPreview({ dataUrl, fileName }: PdfPreviewProps) {
           <path d="M14 2v6h6M16 13H8M16 17H8" />
         </svg>
         <p className="text-white/30 text-xs">{fileName}</p>
-        {dataUrl.startsWith("http") && (
+        {missing ? (
+          <p className="text-[11px] text-amber-300/80 text-center px-4">Arquivo nao encontrado no servidor. Apague este slide e envie o PDF de novo.</p>
+        ) : (
+          <p className="text-[11px] text-white/30 text-center px-4">Nao deu pra renderizar a previa aqui.</p>
+        )}
+        {dataUrl.startsWith("http") && !missing && (
           <a href={dataUrl} target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-lg text-xs font-semibold" style={{ background: "rgba(139,92,246,0.15)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.3)" }}>
             Abrir PDF
           </a>

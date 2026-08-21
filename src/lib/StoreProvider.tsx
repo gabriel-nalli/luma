@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { supabase, LUMA_USER_ID } from "./supabase";
+import { resolveCorrectAnswer, isAnswerCorrect } from "./answers";
 // Inline types and helpers to avoid circular dependency
 
 interface Subject { id: string; name: string; color: string; icon: string; semester?: number | null; createdAt: string; }
@@ -76,6 +77,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(DEFAULT_STATE);
   const [loaded, setLoaded] = useState(false);
   const loadedRef = useRef(false);
+  // Ultimo estado, para ler dados dentro de callbacks sem efeitos colaterais no setState.
+  // IMPORTANTE: query builders do supabase-js sao lazy (so executam com await/then);
+  // nunca dispare supabase.from(...) dentro de um updater do setState sem aguardar.
+  const stateRef = useRef<AppState>(DEFAULT_STATE);
+  useEffect(() => { stateRef.current = state; }, [state]);
   const uid = LUMA_USER_ID;
 
   // Load once on mount
@@ -108,7 +114,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         for (const a of (attemptsRes.data || [])) attemptsMap[a.question_id] = { answer: a.answer, correct: a.correct };
         const questions = (questionsRes.data || []).map((q: any) => {
           const attempt = attemptsMap[q.id];
-          return { id: q.id, subjectId: q.subject_id || q.pdf_id || "", question: q.content, options: q.options || [], correctAnswer: q.correct_answer, explanation: q.explanation || "", userAnswer: attempt?.answer, isCorrect: attempt?.correct };
+          return { id: q.id, subjectId: q.subject_id || q.pdf_id || "", question: q.content, options: q.options || [], correctAnswer: resolveCorrectAnswer(q.options, q.correct_answer), explanation: q.explanation || "", userAnswer: attempt?.answer, isCorrect: attempt?.correct };
         });
 
         const { data: pdfsData } = await supabase.from("pdfs").select("*").eq("user_id", uid).order("uploaded_at");
@@ -195,15 +201,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toggleStep = useCallback(async (planId: string, stepId: string) => {
-    setState((prev) => {
-      const updated = prev.studyPlans.map((plan) => {
-        if (plan.id !== planId) return plan;
-        return { ...plan, steps: plan.steps.map((step) => step.id === stepId ? { ...step, completed: !step.completed } : step) };
-      });
-      const step = updated.find((p) => p.id === planId)?.steps.find((s) => s.id === stepId);
-      if (step) supabase.from("schedule_steps").update({ completed: step.completed, completed_at: step.completed ? new Date().toISOString() : null }).eq("id", stepId);
-      return { ...prev, studyPlans: updated };
-    });
+    const current = stateRef.current.studyPlans.find((p) => p.id === planId)?.steps.find((st) => st.id === stepId);
+    if (!current) return;
+    const completed = !current.completed;
+    setState((prev) => ({ ...prev, studyPlans: prev.studyPlans.map((plan) => plan.id !== planId ? plan : { ...plan, steps: plan.steps.map((step) => step.id === stepId ? { ...step, completed } : step) }) }));
+    const { error } = await supabase.from("schedule_steps").update({ completed, completed_at: completed ? new Date().toISOString() : null }).eq("id", stepId);
+    if (error) console.error("toggleStep:", error.message);
   }, []);
 
   const addNote = useCallback(async (note: Omit<Note, "id" | "createdAt" | "updatedAt">) => {
@@ -226,18 +229,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addQuestion = useCallback(async (question: Omit<Question, "id">) => {
-    const { data } = await supabase.from("questions").insert({ user_id: uid, subject_id: question.subjectId, type: "multiple_choice", content: question.question, options: question.options, correct_answer: question.correctAnswer, explanation: question.explanation }).select().single();
-    if (data) setState((s) => ({ ...s, questions: [...s.questions, { id: data.id, subjectId: data.subject_id, question: data.content, options: data.options, correctAnswer: data.correct_answer, explanation: data.explanation || "" }] }));
+    const correctAnswer = resolveCorrectAnswer(question.options, question.correctAnswer);
+    const { data, error } = await supabase.from("questions").insert({ user_id: uid, subject_id: question.subjectId, type: "multiple_choice", content: question.question, options: question.options, correct_answer: correctAnswer, explanation: question.explanation }).select().single();
+    if (error) throw new Error(error.message);
+    if (data) setState((s) => ({ ...s, questions: [...s.questions, { id: data.id, subjectId: data.subject_id, question: data.content, options: data.options, correctAnswer, explanation: data.explanation || "" }] }));
   }, [uid]);
 
   const answerQuestion = useCallback(async (id: string, userAnswer: string) => {
-    setState((prev) => {
-      const q = prev.questions.find((q) => q.id === id);
-      if (!q) return prev;
-      const isCorrect = userAnswer.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase();
-      supabase.from("question_attempts").insert({ question_id: id, user_id: uid, answer: userAnswer, correct: isCorrect });
-      return { ...prev, questions: prev.questions.map((q) => q.id === id ? { ...q, userAnswer, isCorrect } : q) };
-    });
+    const q = stateRef.current.questions.find((qq) => qq.id === id);
+    if (!q) return;
+    const isCorrect = isAnswerCorrect(q, userAnswer);
+    setState((prev) => ({ ...prev, questions: prev.questions.map((qq) => qq.id === id ? { ...qq, userAnswer, isCorrect } : qq) }));
+    const { error } = await supabase.from("question_attempts").insert({ question_id: id, user_id: uid, answer: userAnswer, correct: isCorrect });
+    if (error) console.error("answerQuestion:", error.message);
   }, [uid]);
 
   const addReminder = useCallback(async (reminder: Omit<Reminder, "id">) => {
@@ -279,18 +283,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         arrayBuffer = bytes.buffer;
       } else {
-        console.error("addSlide: no file or dataUrl"); return;
+        throw new Error("Nenhum arquivo selecionado");
       }
 
       const { error: uploadError } = await supabase.storage.from("luma-pdfs").upload(filePath, arrayBuffer, { contentType: "application/pdf", upsert: true });
-      if (uploadError) { console.error("Upload error:", uploadError); return; }
+      if (uploadError) throw new Error(`Falha no upload: ${uploadError.message}`);
       const { data: urlData } = supabase.storage.from("luma-pdfs").getPublicUrl(filePath);
       const publicUrl = urlData?.publicUrl || "";
       const { data, error: insertError } = await supabase.from("pdfs").insert({ user_id: uid, subject_id: slide.subjectId, file_path: publicUrl, original_name: slide.fileName, extracted_text: slide.textContent, processing_status: "done" }).select().single();
-      if (insertError) { console.error("Insert error:", insertError); return; }
+      if (insertError) {
+        // nao deixa arquivo orfao no storage
+        await supabase.storage.from("luma-pdfs").remove([filePath]).catch(() => {});
+        throw new Error(`Falha ao registrar PDF: ${insertError.message}`);
+      }
       if (data) setState((s) => ({ ...s, slides: [...s.slides, { id: data.id, subjectId: data.subject_id, fileName: data.original_name, dataUrl: publicUrl, textContent: data.extracted_text || "", createdAt: data.uploaded_at }] }));
     } catch (err) {
       console.error("addSlide error:", err);
+      throw err;
     }
   }, [uid]);
 
@@ -304,15 +313,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const deleteSlide = useCallback(async (id: string) => {
-    setState((prev) => {
-      const slide = prev.slides.find((s) => s.id === id);
-      if (slide?.dataUrl) {
-        const path = slide.dataUrl.split("/luma-pdfs/")[1];
-        if (path) supabase.storage.from("luma-pdfs").remove([decodeURIComponent(path)]);
-      }
-      supabase.from("pdfs").delete().eq("id", id);
-      return { ...prev, slides: prev.slides.filter((sl) => sl.id !== id) };
-    });
+    const slide = stateRef.current.slides.find((sl) => sl.id === id);
+    setState((prev) => ({ ...prev, slides: prev.slides.filter((sl) => sl.id !== id) }));
+    const { error } = await supabase.from("pdfs").delete().eq("id", id);
+    if (error) console.error("deleteSlide:", error.message);
+    const path = slide?.dataUrl?.split("/luma-pdfs/")[1];
+    if (path) await supabase.storage.from("luma-pdfs").remove([decodeURIComponent(path)]);
   }, []);
 
   const checkStreak = useCallback(() => {}, []);

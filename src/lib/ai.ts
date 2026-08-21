@@ -27,7 +27,8 @@ export async function generateSummaryAI(pdfSource: string, subjectName?: string)
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error || `Erro ${res.status} ao gerar resumo`);
   return data.summary || "Nao foi possivel gerar o resumo.";
 }
 
@@ -43,7 +44,8 @@ export async function generateQuestionsAI(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error || `Erro ${res.status} ao gerar questoes`);
   return data.questions || [];
 }
 
@@ -59,7 +61,8 @@ export async function generateScheduleAI(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error || `Erro ${res.status} ao gerar cronograma`);
   return data.steps || [];
 }
 

@@ -3,7 +3,7 @@
 import { useState, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { useStore } from "@/lib/store";
+import { useStore, isAnswerCorrect } from "@/lib/store";
 import type { SlideFile } from "@/lib/store";
 import GlassCard from "@/components/ui/GlassCard";
 import BottomNav from "@/components/layout/BottomNav";
@@ -59,6 +59,8 @@ export default function SubjectDetailPage({
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [expandedSlide, setExpandedSlide] = useState<string | null>(null);
   const [generatingFor, setGeneratingFor] = useState<{ id: string; type: string } | null>(null);
+  const [genError, setGenError] = useState<{ id: string; message: string } | null>(null);
+  const [slideToDelete, setSlideToDelete] = useState<SlideFile | null>(null);
   const pdfBase64Cache = useRef<Record<string, string>>({});
 
   // Step quiz state
@@ -155,7 +157,7 @@ export default function SubjectDetailPage({
 
     // Check if correct
     const q = questions.find((q) => q.id === questionId);
-    if (q && selectedOption.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase()) {
+    if (q && isAnswerCorrect(q, selectedOption)) {
       setShowCelebration(true);
       setTimeout(() => setShowCelebration(false), 3500);
     }
@@ -175,14 +177,15 @@ export default function SubjectDetailPage({
     setUploadingPdf(true);
 
     try {
-      const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 60000));
+      const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 120000));
       await Promise.race([
         addSlide({ subjectId: id, fileName: file.name, dataUrl: "", textContent: "" }, file),
         timeout,
       ]);
     } catch (err) {
       console.error("Upload failed:", err);
-      alert("Erro ao enviar PDF. Tente novamente.");
+      const msg = (err as Error)?.message === "timeout" ? "O envio demorou demais (conexao lenta?). Tente novamente." : `Erro ao enviar PDF: ${(err as Error)?.message || "tente novamente"}`;
+      alert(msg);
     }
     setUploadingPdf(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -203,26 +206,37 @@ export default function SubjectDetailPage({
     });
   }
 
+  // Garante que o arquivo ainda existe no storage antes de mandar pra IA
+  async function ensurePdfAvailable(slide: SlideFile) {
+    if (!slide.dataUrl.startsWith("http")) return;
+    const res = await fetch(slide.dataUrl, { method: "HEAD" }).catch(() => null);
+    if (!res || !res.ok) throw new Error("Arquivo nao encontrado no servidor. Apague este slide e envie o PDF de novo.");
+  }
+
   async function handleGenerateSummary(slide: SlideFile) {
     setGeneratingFor({ id: slide.id, type: "summary" });
+    setGenError(null);
     try {
       const { generateSummaryAI } = await import("@/lib/ai");
+      await ensurePdfAvailable(slide);
       const source = slide.dataUrl.startsWith("http") ? slide.dataUrl : await getPdfBase64(slide);
       const summary = await generateSummaryAI(source, subject?.name);
       updateSlide(slide.id, { summary });
     } catch (err: any) {
-      updateSlide(slide.id, { summary: `Erro: ${err?.message || "falha"}` });
+      setGenError({ id: slide.id, message: err?.message || "Falha ao gerar o resumo" });
     }
     setGeneratingFor(null);
   }
 
   async function handleGenerateQuestions(slide: SlideFile) {
     setGeneratingFor({ id: slide.id, type: "questions" });
+    setGenError(null);
     try {
       const { generateQuestionsAI } = await import("@/lib/ai");
+      await ensurePdfAvailable(slide);
       const source = slide.dataUrl.startsWith("http") ? slide.dataUrl : await getPdfBase64(slide);
       const raw = await generateQuestionsAI(source, subject?.name);
-      if (raw.length === 0) throw new Error("Nenhuma questao gerada");
+      if (raw.length === 0) throw new Error("A IA nao conseguiu gerar questoes desse PDF. Tente de novo.");
       for (const q of raw) {
         await addQuestion({
           subjectId: id,
@@ -233,24 +247,29 @@ export default function SubjectDetailPage({
         });
       }
       updateSlide(slide.id, { generatedQuestions: raw as any });
+      setActiveTab("Questoes");
     } catch (err: any) {
       console.error("Erro ao gerar questoes:", err);
+      setGenError({ id: slide.id, message: err?.message || "Falha ao gerar questoes" });
     }
     setGeneratingFor(null);
   }
 
   async function handleGenerateSchedule(slide: SlideFile) {
     setGeneratingFor({ id: slide.id, type: "schedule" });
+    setGenError(null);
     let steps;
     try {
       const { generateScheduleAI } = await import("@/lib/ai");
       const { generateId } = await import("@/lib/store");
+      await ensurePdfAvailable(slide);
       const source = slide.dataUrl.startsWith("http") ? slide.dataUrl : await getPdfBase64(slide);
       const raw = await generateScheduleAI(source, subject?.name);
-      if (raw.length === 0) throw new Error("Nenhum cronograma gerado");
+      if (raw.length === 0) throw new Error("A IA nao conseguiu montar o cronograma desse PDF. Tente de novo.");
       steps = raw.map((s) => ({ id: generateId(), label: s.label, icon: s.icon || "read", completed: false }));
     } catch (err: any) {
       console.error("Erro ao gerar cronograma:", err);
+      setGenError({ id: slide.id, message: err?.message || "Falha ao gerar cronograma" });
       setGeneratingFor(null);
       return;
     }
@@ -791,8 +810,9 @@ export default function SubjectDetailPage({
                         </div>
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={(e) => { e.stopPropagation(); deleteSlide(slide.id); }}
-                            className="p-1 rounded"
+                            onClick={(e) => { e.stopPropagation(); setSlideToDelete(slide); }}
+                            aria-label="Apagar PDF"
+                            className="p-2 rounded-lg subject-delete"
                             style={{ color: "var(--text-secondary)" }}
                           >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -879,6 +899,13 @@ export default function SubjectDetailPage({
                                 {isGenerating && generatingFor?.type === "schedule" ? "Gerando..." : slide.generatedSchedule ? "Cronograma Criado" : "Cronograma"}
                               </button>
                             </div>
+
+                            {genError?.id === slide.id && (
+                              <div className="p-3 rounded-lg text-xs mb-3 flex items-start gap-2" style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)", color: "#fcd34d" }}>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                                <span className="break-words">{genError.message}</span>
+                              </div>
+                            )}
 
                             {/* Summary display */}
                             {slide.summary && (
@@ -1070,6 +1097,16 @@ export default function SubjectDetailPage({
           </motion.div>
         )}
       </AnimatePresence>
+
+      <Modal open={!!slideToDelete} onClose={() => setSlideToDelete(null)}>
+        <h2 className="text-lg font-bold mb-2 text-white">Apagar PDF?</h2>
+        <p className="text-sm text-white/60 mb-1"><span className="text-white font-semibold">{slideToDelete?.fileName}</span> sera removido do Luma.</p>
+        <p className="text-xs text-white/40 mb-5">As questoes e cronogramas ja gerados a partir dele continuam na materia.</p>
+        <div className="flex gap-3">
+          <button onClick={() => setSlideToDelete(null)} className="flex-1 py-2.5 rounded-lg text-sm font-semibold" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)" }}>Cancelar</button>
+          <button onClick={() => { if (slideToDelete) deleteSlide(slideToDelete.id); setSlideToDelete(null); }} className="flex-1 py-2.5 rounded-lg text-sm font-bold" style={{ background: "#f43f5e", color: "#fff" }}>Apagar</button>
+        </div>
+      </Modal>
 
       <BottomNav />
     </main>
