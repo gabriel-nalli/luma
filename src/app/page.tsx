@@ -6,7 +6,7 @@ import { useStore, getPerformanceStats, getStreakData } from "@/lib/store";
 import BottomNav from "@/components/layout/BottomNav";
 import PandaHome from "@/components/mascot/PandaHome";
 import StepQuiz from "@/components/ui/StepQuiz";
-import { usePushNotifications } from "@/hooks/usePushNotifications";
+import PushNotificationsCard from "@/components/PushNotificationsCard";
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -39,18 +39,6 @@ export default function HomePage() {
   const [streak, setStreak] = useState({ current: 0, longest: 0 });
   const [performance, setPerformance] = useState<PerfStat[]>([]);
   const [animatedBars, setAnimatedBars] = useState(false);
-  const { permission, loading: pushLoading, requestPermission } = usePushNotifications();
-  const [pushDismissed, setPushDismissed] = useState(true);
-
-  useEffect(() => {
-    // Check if already dismissed before
-    const dismissed = localStorage.getItem("luma_push_dismissed");
-    if (dismissed || (typeof Notification !== "undefined" && Notification.permission !== "default")) return;
-    // Show after 4 seconds
-    const timer = setTimeout(() => setPushDismissed(false), 4000);
-    return () => clearTimeout(timer);
-  }, []);
-
   useEffect(() => {
     setGreeting(getGreeting());
   }, []);
@@ -106,24 +94,8 @@ export default function HomePage() {
           <PandaHome />
         </header>
 
-        {/* Push notification banner */}
-        {loaded && permission === "default" && !pushDismissed && (
-          <section className="rounded-2xl p-4 fade-in-up delay-1 flex items-center gap-3" style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.25)" }}>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(139,92,246,0.2)" }}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
-            </div>
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-white/80">Ative as notificacoes</p>
-              <p className="text-[10px] text-white/40">Lembretes de estudo e avisos de aula</p>
-            </div>
-            <button onClick={requestPermission} disabled={pushLoading} className="px-3 py-1.5 rounded-lg text-[11px] font-bold shrink-0" style={{ background: "#8b5cf6", color: "#fff" }}>
-              {pushLoading ? "..." : "Ativar"}
-            </button>
-            <button onClick={() => { setPushDismissed(true); localStorage.setItem("luma_push_dismissed", "1"); }} className="text-white/20 hover:text-white/50 shrink-0">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
-            </button>
-          </section>
-        )}
+        {/* Notificacoes push: convite / status / auto-reparo */}
+        {loaded && <PushNotificationsCard />}
 
         {!loaded && (
           <div className="space-y-4 fade-in-up delay-1">
